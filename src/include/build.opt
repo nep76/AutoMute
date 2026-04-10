@@ -1,0 +1,3 @@
+CFLAGS  ?= -Os -G0 -Wall -fno-strict-aliasing
+ASFLAGS ?= $(CFLAGS)
+LDFLAGS ?= 

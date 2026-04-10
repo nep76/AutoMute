@@ -11,10 +11,12 @@
 #include <pspdisplay.h>
 #include <psppower.h>
 #include "ammain.h"
-#include "psp/ovmsg.h"
-#include "psp/padutil.h"
-#include "psp/utils/inimgr.h"
-#include "psp/sysclib/sysclib.h"
+#include "ovmsg.h"
+#include "pad/padutil.h"
+#include "file/inimgr.h"
+#include "util/hook.h"
+#include "sysclib.h"
+#include "pspapi.h"
 
 PSP_MODULE_INFO( "AutoMute", PSP_MODULE_KERNEL, 2, 0 );
 
@@ -54,6 +56,9 @@ enum am_internal_status {
 	AM_HEADPHONES_PLUGGED_OUT         = 0x00000020,
 };
 
+typedef int (*am_impose_set_param)( SceImposeParam, int );
+typedef int (*am_impose_get_param)( SceImposeParam );
+
 /*=========================================================
 	ローカル関数
 =========================================================*/
@@ -61,11 +66,11 @@ static int  am_main( SceSize size, void *argp );
 static void am_ini( struct am_params *params, const char *path );
 static bool am_notificf( const char *format, ... );
 static void am_notificf_abort( void );
-static void am_enable( enum am_internal_status *status );
-static void am_disable( enum am_internal_status *status );
+static void am_enable( unsigned int *status );
+static void am_disable( unsigned int *status );
 static bool am_is_muted( void );
-static void am_mute( enum am_internal_status *status );
-static void am_unmute( enum am_internal_status *status );
+static void am_mute( unsigned int *status );
+static void am_unmute( unsigned int *status );
 
 static int am_power_callback( int unk, int pwinfo, void *argp );
 
@@ -73,6 +78,8 @@ static int am_power_callback( int unk, int pwinfo, void *argp );
 	ローカル変数
 =========================================================*/
 static int st_power_status = 0;
+static am_impose_get_param st_impose_get_param;
+static am_impose_set_param st_impose_set_param;
 
 /*=========================================================
 	関数
@@ -89,7 +96,7 @@ static int am_main( SceSize size, void *argp )
 	unsigned int hk;
 	PadutilButtons buttons;
 	
-	enum am_internal_status status = 0;
+	unsigned int status = 0;
 	
 	/* 設定ファイルのロード(なければ作成) */
 	am_ini( &params, (const char *)argp );
@@ -109,6 +116,23 @@ static int am_main( SceSize size, void *argp )
 		power_cb_thid = sceKernelCreateCallback( "AutoMuteResumeCheck", am_power_callback, NULL );
 		if( power_cb_thid ) scePowerRegisterCallback( AM_POWER_CALLBACK_SLOT, power_cb_thid );
 	}
+	
+	/* PopsLoader経由で起動された場合は、PopsManagerの起動を待つ */
+	if( sceKernelFindModuleByName( "popsloader_trademark" ) != NULL ){
+		while( ! sceKernelFindModuleByName( "scePops_Manager" ) ) sceKernelDelayThread( 50000 );
+	}
+	
+	/* scePops_ManagerがFW4.01のImposeドライバNIDを取り込んでいたら旧バージョン。もっと良い判定方法はないものか？ */
+	if( hookFindImportAddr( "scePops_Manager", "sceImpose_driver", 0x6F502C0A ) ){
+		st_impose_get_param = sceImposeGetParam401;
+		st_impose_set_param = sceImposeSetParam401;
+	} else{
+		st_impose_get_param = sceImposeGetParam;
+		st_impose_set_param = sceImposeSetParam;
+	}
+	
+	/* 気休めリンク待ち */
+	sceKernelDelayThread( 1000000 );
 	
 	switch( params.startup ){
 		case AM_STARTUP_AUTO:
@@ -201,7 +225,7 @@ static int am_main( SceSize size, void *argp )
 	return sceKernelExitDeleteThread( 0 );
 }
 
-static void am_enable(enum am_internal_status *status )
+static void am_enable( unsigned int *status )
 {
 	if( ! ( *status & AM_ACTIVATE ) ){
 		*status |= AM_ACTIVATE;
@@ -209,7 +233,7 @@ static void am_enable(enum am_internal_status *status )
 	}
 }
 
-static void am_disable( enum am_internal_status *status )
+static void am_disable( unsigned int *status )
 {
 	if( *status & AM_ACTIVATE ){
 		*status &= ~AM_ACTIVATE;
@@ -219,21 +243,21 @@ static void am_disable( enum am_internal_status *status )
 
 static bool am_is_muted( void )
 {
-	return sceImposeGetParam( PSP_IMPOSE_MUTE ) ? true : false;
+	return st_impose_get_param( PSP_IMPOSE_MUTE ) ? true : false;
 }
 
-static void am_mute( enum am_internal_status *status )
+static void am_mute( unsigned int *status )
 {
 	if( ! am_is_muted() ){
-		sceImposeSetParam( PSP_IMPOSE_MUTE, 1 );
+		st_impose_set_param( PSP_IMPOSE_MUTE, 1 );
 		*status |= AM_MUTE_DISABLED_BEFORE_AUTOMUTE;
 	}
 }
 
-static void am_unmute( enum am_internal_status *status )
+static void am_unmute( unsigned int *status )
 {
 	if( *status & AM_MUTE_DISABLED_BEFORE_AUTOMUTE ){
-		sceImposeSetParam( PSP_IMPOSE_MUTE, 0 );
+		st_impose_set_param( PSP_IMPOSE_MUTE, 0 );
 	}
 	*status &= ~AM_MUTE_DISABLED_BEFORE_AUTOMUTE;
 }

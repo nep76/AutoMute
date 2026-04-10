@@ -14,7 +14,7 @@
 /*=========================================================
 	É}ÉNÉç
 =========================================================*/
-#define AM_VERSION  "2.0.0"
+#define AM_VERSION  "2.0.1"
 #define AM_ENABLED  "Enabled"
 #define AM_DISABLED "Disabled"
 
