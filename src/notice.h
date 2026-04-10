@@ -5,13 +5,12 @@
 #include "global.h"
 #include <pspdisplay.h>
 #include "psp/blit.h"
-#include "sstring.h"
+#include "utils/strutil.h"
 
 /*-----------------------------------------------
 	’è”ƒ}ƒNƒ
 -----------------------------------------------*/
 #define NOTICE_MESSAGE_BUFFER      255
-#define NOTICE_DEFAULT_DISPLAY_SEC 3
 
 /*-----------------------------------------------
 	\‘¢‘Ì/—ñ‹“Œ^

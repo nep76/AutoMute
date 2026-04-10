@@ -10,7 +10,7 @@
 #include <stdarg.h>
 #include "error.h"
 
-#define AM_VERSION "AutoMute v1.0.0"
+#define AM_VERSION "AutoMute v1.1.0"
 
 #ifdef GLOBAL_VARIABLES_DEFINE
 #define GLOBAL

@@ -35,8 +35,13 @@ LIBS = -lpsphprm_driver -lpspkernel -lc -lpspuser
 OBJS = exports.o \
        main.o \
        notice.o \
-       $(CLASSG_LIBS)/sstring.o \
+       $(CLASSG_LIBS)/utils/strutil.o \
+       $(CLASSG_LIBS)/psp/memsce.o \
        $(CLASSG_LIBS)/psp/blit.o \
+       $(CLASSG_LIBS)/psp/pathexpand.o \
+       $(CLASSG_LIBS)/psp/fileh.o \
+       $(CLASSG_LIBS)/utils/confmgr.o \
+       $(CLASSG_LIBS)/psp/confmgr/cmpspbtn.o \
 
 PSPSDK = $(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build_prx.mak

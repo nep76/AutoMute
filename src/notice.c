@@ -12,6 +12,7 @@ static bool       st_running;
 static SceUID     st_semaid;
 static NoticeStat st_stat;
 static int        st_errcode;
+static int        st_auto_dispsec;
 static int        st_dispsec;
 static time_t     st_start_time;
 static char       st_string[NOTICE_MESSAGE_BUFFER];
@@ -32,7 +33,12 @@ NoticeStat noticeGetStat( void )
 
 void noticeSetDisplaySec( int sec )
 {
-	st_dispsec = sec;
+	if( sec <= 0 ){
+		st_auto_dispsec = true;
+	} else{
+		st_dispsec      = sec;
+		st_auto_dispsec = false;
+	}
 }
 
 void noticePrint( char *str )
@@ -74,6 +80,16 @@ int noticeThread( SceSize arglen, void *argp )
 			sceKernelSleepThread();
 			
 			st_stat = NS_WORK;
+			
+			if( st_auto_dispsec ){
+				sceKernelWaitSema( st_semaid, 1, 0 );
+				st_dispsec = strlen( st_string ) / 7;
+				sceKernelSignalSema( st_semaid, 1 );
+				
+				if( st_dispsec < 3 ){
+					st_dispsec = 3;
+				}
+			}
 			sceKernelLibcTime( &st_start_time );
 		}
 		
@@ -111,14 +127,15 @@ void noticeThreadExit( void )
 
 static void notice_init( void )
 {
-	st_self_thid  = 0;
-	st_running    = true;
-	st_semaid     = 0;
-	st_stat       = NS_INIT;
-	st_errcode    = AM_ERROR_SUCCESS;
-	st_dispsec    = NOTICE_DEFAULT_DISPLAY_SEC;
-	st_start_time = 0;
-	st_string[0]  = '\0';
+	st_self_thid    = 0;
+	st_running      = true;
+	st_semaid       = 0;
+	st_stat         = NS_INIT;
+	st_errcode      = AM_ERROR_SUCCESS;
+	st_auto_dispsec = true;
+	st_dispsec      = 0;
+	st_start_time   = 0;
+	st_string[0]    = '\0';
 }
 
 static void notice_error( int error )
@@ -131,7 +148,7 @@ static void notice_error( int error )
 static void notice_set_message( char *str )
 {
 	sceKernelWaitSema( st_semaid, 1, 0 );
-	safe_strncpy( st_string, str, NOTICE_MESSAGE_BUFFER );
+	strutilSafeCopy( st_string, str, NOTICE_MESSAGE_BUFFER );
 	sceKernelLibcTime( &st_start_time );
 	sceKernelSignalSema( st_semaid, 1 );
 }
