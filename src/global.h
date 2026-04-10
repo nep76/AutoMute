@@ -10,7 +10,7 @@
 #include <stdarg.h>
 #include "cgerrs.h"
 
-#define AM_VERSION "AutoMute 1.2.0"
+#define AM_VERSION "AutoMute 1.3.0"
 
 #ifdef GLOBAL_VARIABLES_DEFINE
 #define GLOBAL

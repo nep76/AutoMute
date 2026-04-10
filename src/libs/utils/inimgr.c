@@ -281,7 +281,7 @@ unsigned int inimgrGetString( IniUID uid, const char *section, const char *key, 
 	
 	if( value ){
 		strutilSafeCopy( buf, value, bufsize );
-	} else{
+	} else if( buf != def ){
 		strutilSafeCopy( buf, def, bufsize );
 	}
 	

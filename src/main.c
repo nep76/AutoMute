@@ -9,7 +9,9 @@ PSP_MODULE_INFO( "AutoMute", PSP_MODULE_KERNEL, 0, 0 );
 /*-----------------------------------------------
 	ローカル関数プロトタイプ
 -----------------------------------------------*/
-void am_conf_load_togglebuttons( const char *name, const char *value, void *arg );
+static void                 am_proc_config( struct am_params *params );
+static int                  am_power_callback( int unk, int pwinfo, void *argp );
+static enum am_startup_mode am_get_startup_mode( char *modestr );
 
 /*-----------------------------------------------
 	ローカル変数
@@ -22,16 +24,39 @@ static SceUID st_wdpw_thid;
 static SceUID st_pwcb_thid;
 static int    st_power_info = 0;
 
-static bool   st_show_status_message = true;
+static struct am_params st_params;
 
 /*=============================================*/
+
+bool amIsMuted( void )
+{
+	return st_mute;
+}
+
+void amMuteEnable( void )
+{
+	unsigned int k1 = pspSdkSetK1( 0 );
+	sceSysregAudioIoDisable();
+	pspSdkSetK1( k1 );
+		
+	st_mute = true;
+}
+
+void amMuteDisable( void )
+{
+	unsigned int k1 = pspSdkSetK1( 0 );
+	sceSysregAudioIoEnable();
+	pspSdkSetK1( k1 );
+	
+	st_mute = false;
+}
 
 void amNoticef( char *format, ... )
 {
 	char msg[NOTICE_MESSAGE_BUFFER];
 	va_list ap;
 	
-	if( ! st_show_status_message ) return;
+	if( ! st_params.main.showStatusMessage || ! format || ! *format ) return;
 	
 	va_start( ap, format );
 	vsnprintf( msg, NOTICE_MESSAGE_BUFFER, format, ap );
@@ -40,29 +65,9 @@ void amNoticef( char *format, ... )
 	noticePrint( msg );
 }
 
-void amMuteEnable( void )
-{
-	unsigned int k1 = pspSdkGetK1();
-	pspSdkSetK1( 0 );
-	sceSysregAudioIoDisable();
-	pspSdkSetK1( k1 );
-	
-	st_mute = true;
-}
-
-void amMuteDisable( void )
-{
-	unsigned int k1 = pspSdkGetK1();
-	pspSdkSetK1( 0 );
-	sceSysregAudioIoEnable();
-	pspSdkSetK1( k1 );
-	
-	st_mute = false;
-}
-
 int amWatchdogPower( SceSize arglen, void *argp )
 {
-	st_pwcb_thid = sceKernelCreateCallback( "AutoMute PowerCallback", amPowerCb, NULL );
+	st_pwcb_thid = sceKernelCreateCallback( "AutoMute PowerCallback", am_power_callback, NULL );
 	if( st_pwcb_thid && scePowerRegisterCallback( AM_POWER_CALLBACK_SLOT, st_pwcb_thid ) == 0 ){
 		sceKernelSleepThreadCB();
 	}
@@ -70,61 +75,17 @@ int amWatchdogPower( SceSize arglen, void *argp )
 	return sceKernelExitDeleteThread( 0 );
 }
 
-int amPowerCb( int unk, int pwinfo, void *argp )
-{
-	st_power_info = pwinfo;
-	return 0;
-}
-
 int amMain( SceSize arglen, void *argp )
 {
 	SceCtrlData pad;
 	CtrlpadParams ctrl;
 	
-	bool activate = false;
-	struct am_params params;
+	bool activate  = false;
+	unsigned int buttons;
 	
-	memset( &params, 0, sizeof( struct am_params ) );
+	am_proc_config( &st_params );
 	
-	params.main.autoDetect         = AM_INIDEF_MAIN_AUTODETECT;
-	params.main.toggleButtons      = AM_INIDEF_MAIN_TOGGLEBUTTONS;
-	params.main.showMuteWarning    = AM_INIDEF_MAIN_SHOWMUTEWARNING;
-	
-	params.resume.autoDetect       = AM_INIDEF_RESUME_AUTODETECT;
-	params.resume.allowAutoDisable = AM_INIDEF_RESUME_ALLOWAUTODISABLE;
-	
-	{
-		IniUID ini;
-		ini = inimgrNew();
-		if( ini > 0 ){
-			char buttons[128];
-			if( inimgrLoad( ini, "ms0:/seplugins/automute.ini" ) != 0 ){
-				inimgrSetBool( ini, "Main", "AutoDetect", AM_INIDEF_MAIN_AUTODETECT );
-				inimgrSetString( ini, "Main", "ToggleButtons", AM_INIDEF_MAIN_TOGGLEBUTTONSNAME );
-				inimgrSetBool( ini, "Main", "ShowStatusMessage", AM_INIDEF_MAIN_SHOWSTATUSMESSAGE );
-				inimgrSetBool( ini, "Main", "ShowMuteWarning", AM_INIDEF_MAIN_SHOWMUTEWARNING );
-				
-				inimgrSetBool( ini, "Resume", "AutoDetect", AM_INIDEF_RESUME_AUTODETECT );
-				inimgrSetBool( ini, "Resume", "AllowAutoDisable", AM_INIDEF_RESUME_ALLOWAUTODISABLE );
-				
-				inimgrSave( ini, "ms0:/seplugins/automute.ini" );
-			}
-			
-			params.main.autoDetect = inimgrGetBool( ini, "Main", "AutoDetect", AM_INIDEF_MAIN_AUTODETECT );
-			
-			inimgrGetString( ini, "Main", "ToggleButtons", AM_INIDEF_MAIN_TOGGLEBUTTONSNAME, buttons, sizeof( buttons ) );
-			params.main.toggleButtons = ctrlpadUtilStringToButtons( buttons );
-			
-			st_show_status_message      = inimgrGetBool( ini, "Main", "ShowStatusMessage", AM_INIDEF_MAIN_SHOWSTATUSMESSAGE );
-			params.main.showMuteWarning = inimgrGetBool( ini, "Main", "ShowMuteWarning",   AM_INIDEF_MAIN_SHOWMUTEWARNING );
-			
-			params.resume.autoDetect       = inimgrGetBool( ini, "Resume", "AutoDetect",       AM_INIDEF_RESUME_AUTODETECT );
-			params.resume.allowAutoDisable = inimgrGetBool( ini, "Resume", "AllowAutoDisable", AM_INIDEF_RESUME_ALLOWAUTODISABLE );
-			
-			inimgrDestroy( ini );
-		}
-	}
-	if( params.resume.autoDetect ){
+	if( st_params.resume.autoDetect ){
 		if( st_wdpw_thid > 0 ) sceKernelStartThread( st_wdpw_thid, 0, NULL );
 	} else{
 		if( st_wdpw_thid > 0 ) sceKernelDeleteThread( st_wdpw_thid );
@@ -144,21 +105,32 @@ int amMain( SceSize arglen, void *argp )
 	/* 表示スレッドを待つ */
 	while( noticeGetStat() != NS_READY ) sceKernelDelayThread( 10000 );
 	
-	if( params.main.autoDetect ){
-		if( sceHprmIsHeadphoneExist() ){
+	switch( st_params.main.startup ){
+		case AM_STARTUP_OFF:
+			amNoticef( AM_MSG_STARTUP_OFF, AM_VERSION );
+			break;
+		case AM_STARTUP_ON:
 			activate = true;
-			amNoticef( AM_ENABLE_BOOT, AM_VERSION );
-		} else{
-			amNoticef( AM_DISABLE_BOOT, AM_VERSION );
-		}
+			amNoticef( AM_MSG_STARTUP_ON, AM_VERSION );
+			break;
+		case AM_STARTUP_AUTO:
+			if( sceHprmIsHeadphoneExist() ){
+				activate = true;
+				amNoticef( AM_MSG_STARTUP_AUTO_DETECT, AM_VERSION );
+			} else{
+				amNoticef( AM_MSG_STARTUP_AUTO_NOTDETECT, AM_VERSION );
+			}
+			break;
 	}
 	
 	while( st_running ){
 		sceKernelDelayThread( 10000 );
 		
-		pad.Buttons = ctrlpadGetData( &ctrl, &pad, 40 );
+		buttons = ctrlpadGetData( &ctrl, &pad, 40 );
 		
-		if( params.resume.autoDetect && ( st_power_info & PSP_POWER_CB_RESUME_COMPLETE ) ){
+		if( ( st_power_info & PSP_POWER_CB_RESUME_COMPLETE ) && st_params.resume.autoDetect ){
+			noticePrintAbort();
+			
 			/*
 				リジューム完了直後はまだグラフィックが初期化されていない場合があるようで、
 				即描画すると何も表示されない場合がある。
@@ -168,45 +140,48 @@ int amMain( SceSize arglen, void *argp )
 			sceDisplayWaitVblankStart();
 			sceDisplayWaitVblankStart();
 			
-			if( sceHprmIsHeadphoneExist() ){
+			if( pad.Buttons & PSP_CTRL_REMOTE ){
 				if( ! activate ){
 					activate = true;
-					
-					amNoticef( AM_ENABLE_RESUME, AM_VERSION );
+					amNoticef( AM_MSG_RESUME_DETECT, AM_VERSION );
 				}
-			} else if( params.resume.allowAutoDisable ){
+			} else if( st_params.resume.allowAutoDisable ){
 				if( activate ){
 					activate = false;
-					amNoticef( AM_DISABLE_RESUME, AM_VERSION );
+					amNoticef( AM_MSG_RESUME_NOTDETECT, AM_VERSION );
 				}
 			}
 			
 			/* 電源状態をリセット */
 			st_power_info = 0;
-		} else if( ( pad.Buttons & (~( ~0 ^ params.main.toggleButtons )) ) == params.main.toggleButtons ){
+		} else if( ( buttons & (~( ~0 ^ st_params.main.toggleButtons )) ) == st_params.main.toggleButtons ){
 			if( activate ){
-				if( st_mute ) amMuteDisable();
 				activate = false;
-				amNoticef( AM_MAIN_DISABLED, AM_VERSION );
+				amNoticef( AM_MSG_DISABLED, AM_VERSION );
 			} else{
 				activate = true;
-				amNoticef( AM_MAIN_ENABLED, AM_VERSION );
+				amNoticef( AM_MSG_ENABLED, AM_VERSION );
 			}
 		} 
 		
-		if( ! activate ) continue;
-		
-		if( ! sceHprmIsHeadphoneExist() ){
-			/*
-				リジューム時に音が復活するので、
-				Enabled状態でヘッドホンが抜けている場合は、
-				毎回ミュート化を試みる。
-			*/
-			amMuteEnable();
-			if( params.main.showMuteWarning ) amNoticef( AM_MUTE, AM_VERSION );
-		} else if( sceHprmIsHeadphoneExist() && st_mute ){
-			noticePrintAbort();
-			amMuteDisable();
+		if( ! activate ){
+			if( amIsMuted() ){
+				amMuteDisable();
+			}
+		} else{
+			if( ! ( pad.Buttons & PSP_CTRL_REMOTE ) ){
+				/*
+					リジューム時に音が復活するので、
+					Enabled状態でヘッドホンが抜けている場合は、
+					毎回ミュート化を試みる。
+				*/
+				amMuteEnable();
+				if( st_params.main.showMuteWarning ) amNoticef( AM_MSG_MUTE, AM_VERSION );
+			} else if( ( pad.Buttons & PSP_CTRL_REMOTE ) && st_mute ){
+				sceKernelDelayThread( 200000 );
+				noticePrintAbort();
+				amMuteDisable();
+			}
 		}
 	}
 	
@@ -240,4 +215,66 @@ int module_stop( SceSize arglen, void *argp )
 	st_running = false;
 	
 	return 0;
+}
+
+static int am_power_callback( int unk, int pwinfo, void *argp )
+{
+	st_power_info = pwinfo;
+	return 0;
+}
+
+static void am_proc_config( struct am_params *params )
+{
+	IniUID ini;
+	
+	params->main.startup            = am_get_startup_mode( AM_INIDEF_MAIN_STARTUP );
+	params->main.toggleButtons      = AM_INIDEF_MAIN_TOGGLEBUTTONS;
+	params->main.showStatusMessage  = AM_INIDEF_MAIN_SHOWSTATUSMESSAGE;
+	params->main.showMuteWarning    = AM_INIDEF_MAIN_SHOWMUTEWARNING;
+	
+	params->resume.autoDetect       = AM_INIDEF_RESUME_AUTODETECT;
+	params->resume.allowAutoDisable = AM_INIDEF_RESUME_ALLOWAUTODISABLE;
+	
+	ini = inimgrNew();
+	if( ini > 0 ){
+		char buf[128];
+		if( inimgrLoad( ini, AM_INI_FILE_FULLPATH ) != 0 ){
+			inimgrSetString( ini, "Main", "Startup", AM_INIDEF_MAIN_STARTUP );
+			inimgrSetString( ini, "Main", "ToggleButtons", ctrlpadUtilButtonsToString( AM_INIDEF_MAIN_TOGGLEBUTTONS, buf, sizeof( buf ) ) );
+			inimgrSetBool( ini, "Main", "ShowStatusMessage", AM_INIDEF_MAIN_SHOWSTATUSMESSAGE );
+			inimgrSetBool( ini, "Main", "ShowMuteWarning", AM_INIDEF_MAIN_SHOWMUTEWARNING );
+			
+			inimgrSetBool( ini, "Resume", "AutoDetect", AM_INIDEF_RESUME_AUTODETECT );
+			inimgrSetBool( ini, "Resume", "AllowAutoDisable", AM_INIDEF_RESUME_ALLOWAUTODISABLE );
+			
+			inimgrSave( ini, AM_INI_FILE_FULLPATH );
+		}
+		
+		inimgrGetString( ini, "Main", "Startup", AM_INIDEF_MAIN_STARTUP, buf, sizeof( buf ) );
+		params->main.startup = am_get_startup_mode( buf );
+		
+		inimgrGetString( ini, "Main", "ToggleButtons", ctrlpadUtilButtonsToString( AM_INIDEF_MAIN_TOGGLEBUTTONS, buf, sizeof( buf ) ), buf, sizeof( buf ) );
+		params->main.toggleButtons = ctrlpadUtilStringToButtons( buf );
+		
+		params->main.showStatusMessage = inimgrGetBool( ini, "Main", "ShowStatusMessage", AM_INIDEF_MAIN_SHOWSTATUSMESSAGE );
+		params->main.showMuteWarning   = inimgrGetBool( ini, "Main", "ShowMuteWarning",   AM_INIDEF_MAIN_SHOWMUTEWARNING );
+		
+		params->resume.autoDetect       = inimgrGetBool( ini, "Resume", "AutoDetect", AM_INIDEF_RESUME_AUTODETECT );
+		params->resume.allowAutoDisable = inimgrGetBool( ini, "Resume", "AllowAutoDisable", AM_INIDEF_RESUME_ALLOWAUTODISABLE );
+		
+		inimgrDestroy( ini );
+	}
+}
+
+static enum am_startup_mode am_get_startup_mode( char *modestr )
+{
+	strutilToUpper( modestr );
+	
+	if( strcmp( modestr, "ON" ) == 0 ){
+		return AM_STARTUP_ON;
+	} else if( strcmp( modestr, "AUTO" ) == 0 ){
+		return AM_STARTUP_AUTO;
+	} else{
+		return AM_STARTUP_OFF;
+	}
 }

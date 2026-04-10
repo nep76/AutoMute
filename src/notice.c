@@ -98,6 +98,9 @@ int noticeThread( SceSize arglen, void *argp )
 			sceKernelLibcTime( &st_start_time );
 		}
 		
+		sceDisplayWaitVblankStart();
+		sceKernelDelayThread( 500 );
+		
 		if( sceKernelLibcTime( NULL ) - st_start_time < st_dispsec ){
 			/*
 				他のスレッドを停止させず、フレームバッファを自分で制御しない場合、
@@ -110,18 +113,9 @@ int noticeThread( SceSize arglen, void *argp )
 				blitString( blitOffsetChar( 1 ), 255, 0xffeeeeee, BLIT_TRANSPARENT, st_string );
 				
 				sceKernelDcacheWritebackAll();
-				sceDisplayWaitVblankStart();
 			}
 			sceKernelSignalSema( st_semaid, 1 );
 			
-			/*
-				表示バッファに直接描画するのだから、
-				待ち時間がなくても常に最前面に表示されることに気がついた。
-				
-				それでもディレイを入れておかないと、メッセージ表示状態でゲーム終了を選んだときに、
-				システムがスレッドを殺す隙がないので、Vsync間隔以下のディレイを入れる。
-			*/
-			sceKernelDelayThread( 1000 );
 		} else{
 			st_stat = NS_READY;
 		}

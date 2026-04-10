@@ -1,4 +1,4 @@
-AutoMute 1.2.0
+AutoMute 1.3.0
 
 
 設定ファイルの書き方
@@ -65,11 +65,13 @@ AutoMute 1.2.0
   設定可能な設定名と設定値、およびその詳細を紹介します。
 
   [Main]セクション 
-    AutoDetect:
-      設定値: ON | OFF
+    Startup:
+      設定値: ON | OFF | AUTO
 
-      ONにすると、起動時にヘッドホンが接続されていれば
-      自動的にAutoMuteを有効状態に切り替えます。
+      AutoMuteの起動時の状態を指定します。
+        OFF : 起動時にAutoMuteを有効にしない。
+        ON  : 起動時に常にAutoMuteを有効状態にする。
+        AUTO: 起動時にヘッドホンが接続されていれば有効状態に、そうでなれば無効状態にする。
 
     ToggleButtons:
       設定値: ボタン定義
@@ -90,7 +92,7 @@ AutoMute 1.2.0
       ミュート時に「Sound is currently muted by AutoMute.」と表示し続けるかを設定します。
       OFFに設定するとこのメッセージは全く表示されません。
 
-      前述のShowStatusMessageがOFFの場合は、この設定は無視され、OFFと見なされます。
+      前述のShowStatusMessageがOFFの場合は、この設定は常にOFFと見なされます。
 
   [Resume]セクション
     AutoDetect:
@@ -120,9 +122,19 @@ AutoMute 1.2.0
     AllowAutoDisable:
       設定値: ON | OFF
 
-      前述のAutoDetectがONで、さらにこの設定がONの場合、
+      前述のStartupがAUTOで、さらにこの設定がONの場合、
         「リジューム時にヘッドホンが検出されなかった場合は自動で無効状態へ切り替える」
       ことを許可します。
+
+
+1.2.0以前の設定ファイルを1.3.0以降で使うには？
+-------------------------------------------------
+  Mainセクションに存在するAutoDetect行を以下のように書き変えることで、
+  1.2.0以前の動作を1.3.0以降で引き継げます。
+
+    AutoDetect = ON -> Startup = AUTO
+      あるいは
+    AutoDetect = OFF -> Startup = OFF
 
 
 -------------------------------------------------

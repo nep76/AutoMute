@@ -17,7 +17,7 @@
 /*-----------------------------------------------
 	固定設定値
 -----------------------------------------------*/
-#define AM_CONF_FILE_FULLPATH  "ms0:/seplugins/automute_conf.txt"
+#define AM_INI_FILE_FULLPATH  "ms0:/seplugins/automute.ini"
 
 /*
 	Power Callbackを登録するスロット、0-15の数値。
@@ -33,28 +33,35 @@
 /*-----------------------------------------------
 	メッセージ
 -----------------------------------------------*/
-#define AM_MAIN_ENABLED   "%s enabled."
-#define AM_MAIN_DISABLED  "%s disabled."
-#define AM_ENABLE_BOOT    "%s detected headphones."
-#define AM_DISABLE_BOOT   ""
-#define AM_ENABLE_RESUME  AM_MAIN_ENABLED
-#define AM_DISABLE_RESUME AM_MAIN_DISABLED
-#define AM_MUTE           "Sound is currently muted by %s."
+#define AM_MSG_ENABLED                "%s enabled."
+#define AM_MSG_DISABLED               "%s disabled."
+#define AM_MSG_MUTE                   "Sound is currently muted by %s."
+#define AM_MSG_STARTUP_ON             "Starting %s."
+#define AM_MSG_STARTUP_OFF            ""
+#define AM_MSG_STARTUP_AUTO_DETECT    "%s detected headphones."
+#define AM_MSG_STARTUP_AUTO_NOTDETECT ""
+#define AM_MSG_RESUME_DETECT          AM_MSG_STARTUP_AUTO_DETECT
+#define AM_MSG_RESUME_NOTDETECT       AM_MSG_DISABLED
 
 /*-----------------------------------------------
 	ボタン
 -----------------------------------------------*/
-#define AM_INIDEF_MAIN_AUTODETECT                          true
-#define AM_INIDEF_MAIN_TOGGLEBUTTONS                       ( PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_NOTE )
-#define AM_INIDEF_MAIN_TOGGLEBUTTONSNAME                   "LTRIGGER + RTRIGGER + NOTE"
-#define AM_INIDEF_MAIN_SHOWSTATUSMESSAGE                   true
-#define AM_INIDEF_MAIN_SHOWMUTEWARNING                     true
-#define AM_INIDEF_RESUME_AUTODETECT                        true
-#define AM_INIDEF_RESUME_ALLOWAUTODISABLE                  false
+#define AM_INIDEF_MAIN_STARTUP            "AUTO"
+#define AM_INIDEF_MAIN_TOGGLEBUTTONS      ( PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_NOTE )
+#define AM_INIDEF_MAIN_SHOWSTATUSMESSAGE  true
+#define AM_INIDEF_MAIN_SHOWMUTEWARNING    true
+#define AM_INIDEF_RESUME_AUTODETECT       true
+#define AM_INIDEF_RESUME_ALLOWAUTODISABLE false
 
 /*-----------------------------------------------
 	宣言
 -----------------------------------------------*/
+enum am_startup_mode {
+	AM_STARTUP_OFF,
+	AM_STARTUP_ON,
+	AM_STARTUP_AUTO
+};
+
 struct am_avail_buttons {
 	unsigned int button;
 	char *label;
@@ -62,10 +69,10 @@ struct am_avail_buttons {
 
 struct am_params {
 	struct {
-		bool autoDetect;
-		unsigned int toggleButtons;
-		bool showStatusMessage;
-		bool showMuteWarning;
+		enum am_startup_mode startup;
+		unsigned int         toggleButtons;
+		bool                 showStatusMessage;
+		bool                 showMuteWarning;
 	} main;
 	struct {
 		bool autoDetect;
@@ -92,9 +99,10 @@ int sceSysregAudioIoDisable( void );
 /*-----------------------------------------------
 	関数プロトタイプ
 -----------------------------------------------*/
-void amNoticef( char *format, ... );
+bool amIsMuted( void );
 void amMuteEnable( void );
 void amMuteDisable( void );
+void amNoticef( char *format, ... );
 int amWatchdogPower( SceSize arglen, void *argp );
 int amPowerCb( int unk, int pwinfo, void *argp );
 int amMain( SceSize arglen, void *argp );

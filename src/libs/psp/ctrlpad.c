@@ -118,13 +118,6 @@ unsigned int ctrlpadUtilGetAnalogDirection( int x, int y, int deadzone )
 	return direction;
 }
 
-void ctrlpadDataClear( SceCtrlData *pad_data )
-{
-	pad_data->Buttons = 0;
-	pad_data->Lx      = 128;
-	pad_data->Ly      = 128;
-}
-
 void ctrlpadInit( CtrlpadParams *params )
 {
 	if( ! params ) return;
@@ -152,9 +145,9 @@ void ctrlpadReset( CtrlpadParams *params )
 {
 	if( ! params ) return;
 	
-	params->tickLast = 0;
-	params->countLow = 0;
-	ctrlpadDataClear( &(params->lastPadData) );
+	params->tickLast    = 0;
+	params->countLow    = 0;
+	params->lastButtons = 0;
 }
 
 void ctrlpadSetRepeatButtons( CtrlpadParams *params, unsigned int mask )
@@ -166,24 +159,29 @@ void ctrlpadSetRepeatButtons( CtrlpadParams *params, unsigned int mask )
 
 void ctrlpadUpdateData( CtrlpadParams *params )
 {
-
+	SceCtrlData pad;
 	if( ! params ) return;
 	
 	sceRtcGetCurrentTick( &(params->tickLast) );
-	sceCtrlPeekBufferPositive( &(params->lastPadData), 1 );
-	params->countLow = 0;
+	sceCtrlPeekBufferPositive( &pad, 1 );
+	
+	params->countLow    = 0;
+	params->lastButtons = pad.Buttons;
 }
 
 unsigned int ctrlpadGetData( CtrlpadParams *params, SceCtrlData *pad_data, int analog_deadzone )
 {
 	uint64_t current_tick;
 	uint64_t *delay_tick;
+	unsigned int buttons;
 	
 	sceRtcGetCurrentTick( &current_tick );
 	sceCtrlPeekBufferPositive( pad_data, 1 );
 	
+	buttons = pad_data->Buttons;
+	
 	if( analog_deadzone >= 0 ){
-		pad_data->Buttons |= ctrlpadUtilGetAnalogDirection( pad_data->Lx, pad_data->Ly, analog_deadzone );
+		buttons |= ctrlpadUtilGetAnalogDirection( pad_data->Lx, pad_data->Ly, analog_deadzone );
 	}
 	
 	if( params->countLow >= params->countLowToHigh ){
@@ -192,22 +190,22 @@ unsigned int ctrlpadGetData( CtrlpadParams *params, SceCtrlData *pad_data, int a
 		delay_tick = &(params->tickRepeatDelayLow);
 	}
 	
-	if( ! pad_data->Buttons ){
+	if( ! buttons ){
 		ctrlpadReset( params );
-	} else if( pad_data->Buttons != params->lastPadData.Buttons ){
+	} else if( buttons != params->lastButtons ){
 		params->tickLast    = current_tick;
-		params->lastPadData = *pad_data;
+		params->lastButtons = buttons;
 		params->countLow    = 0;
 	} else if( ! *delay_tick ){
 		return 0;
 	} else if( current_tick - params->tickLast > *delay_tick ){
-		pad_data->Buttons   &= params->maskRepeatButtons;
+		buttons             &= params->maskRepeatButtons;
 		params->tickLast    = current_tick;
-		params->lastPadData = *pad_data;
+		params->lastButtons = buttons;
 		if( params->countLow <= params->countLowToHigh ) params->countLow++;
 	} else{
 		return 0;
 	}
 	
-	return pad_data->Buttons;
+	return buttons;
 }

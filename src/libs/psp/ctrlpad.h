@@ -49,7 +49,7 @@ struct ctrlpad_button {
 };
 
 typedef struct {
-	SceCtrlData  lastPadData;
+	unsigned int lastButtons;
 	uint64_t     tickLast;
 	uint64_t     tickRepeatDelayLow;
 	uint64_t     tickRepeatDelayHigh;
@@ -65,7 +65,6 @@ void ctrlpadInit( CtrlpadParams *params );
 void ctrlpadPref( CtrlpadParams *params, uint64_t low, uint64_t high, int count );
 void ctrlpadSetRepeatButtons( CtrlpadParams *params, unsigned int mask );
 void ctrlpadReset( CtrlpadParams *params );
-void ctrlpadDataClear( SceCtrlData *pad_data );
 void ctrlpadUpdateData( CtrlpadParams *params );
 unsigned int ctrlpadGetData( CtrlpadParams *params, SceCtrlData *pad_data, int analog_deadzone );
 
