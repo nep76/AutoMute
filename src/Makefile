@@ -1,48 +1,61 @@
+# PSPLINK用にデバッグメッセージをprintf出力する:
+#     make WITH_PSPLINK_DEBUG=1
+#
+
 TARGET = automute
-PSP_FW_VERSION = 371
+PSP_FW_VERSION = 380
 
 # PRXを作成する
 BUILD_PRX = 1
 
-# エクスポート定義ファイル
+# エクスポート関数定義ファイル
 PRX_EXPORTS = exports.exp
 
 # 機能が制限されているが軽量なカーネルlibc(sysclib)。
-# でも機能制限されすぎなので使わない。
-# 無指定だとnewlibを使おうとしてくれる模様。
-#USE_KERNEL_LIBC = 1
+# printf系関数もないが、prntという関数を提供してくれるため、
+# 自分で再実装するのは容易。
+USE_KERNEL_LIBC = 1
 
 # カーネルモードPRXを作る場合は推奨されているようだ。
 # これを指定するといくつかのライブラリは
-# 優先的にカーネルモードの方(psp***_driver)をリンクしようとするみたい。
+# 優先的にカーネルモードのライブラリ(psp***_driver)をリンクしようとするみたい。
 USE_KERNEL_LIBS = 1
 
-CLASSG_LIBS = libs
+DIR_CLASSG = include
 
-INCDIR = $(CLASSG_LIBS)
-CFLAGS = -g -Os -G0 -Wall -fno-strict-aliasing -fno-builtin-printf
-CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
-ASFLAGS = $(CFLAGS)
-
-LIBDIR =
-LDFLAGS =
-
-# newlibを使う場合、libpspuserをリンクしないとsceKernelFreeMemSizeのリンクに失敗する。
-# libpspuserより先にlibpspkernelをリンクしないと、システムコントロール系のシンボルに
-# ユーザモードの方をリンクしてしまい、カーネルモードスレッドを生成できない模様？
-LIBS = -lpsprtc -lpsppower_driver -lpsphprm_driver -lpspkernel -lm -lc -lpspuser
+INCDIR   = $(DIR_CLASSG)
+CFLAGS   = -O2 -G 0 -Wall -fno-strict-aliasing
+ASFLAGS  = $(CFLAGS)
+LIBDIR   = 
+LDFLAGS  = 
+LIBS     = -lpsppower_driver -lpsphprm_driver -lm
 
 OBJS = exports.o \
-       main.o \
-       notice.o \
-       $(CLASSG_LIBS)/utils/strutil.o \
-       $(CLASSG_LIBS)/psp/memsce.o \
-       $(CLASSG_LIBS)/psp/graphics/fbmgr.o \
-       $(CLASSG_LIBS)/psp/blit.o \
-       $(CLASSG_LIBS)/psp/pathexpand.o \
-       $(CLASSG_LIBS)/psp/fileh.o \
-       $(CLASSG_LIBS)/utils/inimgr.o \
-       $(CLASSG_LIBS)/psp/ctrlpad.o \
+       sceSystemMemoryManager.o \
+       sceImpose.o \
+       ammain.o \
+       $(DIR_CLASSG)/psp/padutil.o \
+       $(DIR_CLASSG)/psp/memory.o \
+       $(DIR_CLASSG)/psp/heap.o \
+       $(DIR_CLASSG)/psp/dmem.o \
+       $(DIR_CLASSG)/psp/ovmsg.o \
+       $(DIR_CLASSG)/psp/fiomgr.o \
+       $(DIR_CLASSG)/psp/gb.o \
+       $(DIR_CLASSG)/psp/sysclib/sysclib.o \
+       $(DIR_CLASSG)/psp/utils/inimgr.o \
+       $(DIR_CLASSG)/utils/strutil.o \
+
+ifdef WITH_PSPLINK_DEBUG
+	CFLAGS += -fno-builtin-printf -g -DMEMORY_DEBUG
+endif
+
+ifeq ($(USE_KERNEL_LIBC),1)
+    CFLAGS += -DPSP_USE_KERNEL_LIBC
+	OBJS += sceSystemMemoryManager.o \
+            $(DIR_CLASSG)/psp/sysclib/sysclib.o
+else
+	LIBS += -lpspkernel -lc -lpspuser
+endif
 
 PSPSDK = $(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build_prx.mak
