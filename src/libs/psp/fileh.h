@@ -2,8 +2,8 @@
 	File Handler
 */
 
-#ifndef __FILEH_H__
-#define __FILEH_H__
+#ifndef FILEH_H
+#define FILEH_H
 
 #include <pspkernel.h>
 #include <stdio.h>
@@ -24,21 +24,21 @@
 extern "C" {
 #endif
 
-typedef unsigned int FilehUID;
+typedef int FilehUID;
 
 typedef enum {
-	FW_SEEK_SET,
-	FW_SEEK_CUR,
-	FW_SEEK_END
+	FW_SEEK_SET = PSP_SEEK_SET,
+	FW_SEEK_CUR = PSP_SEEK_CUR,
+	FW_SEEK_END = PSP_SEEK_END
 } FilehWhence;
 
-struct fileh_params {
+typedef struct {
 	char *path;
 	SceUID fd;
 	SceIoStat stat;
 	int lError;
 	int sError;
-};
+} FilehParams;
 
 enum fileh_seek_mode {
 	FSM_32BITS,
@@ -50,12 +50,12 @@ void filehClose( FilehUID uid );
 void filehDestroy( FilehUID uid );
 int filehRead( FilehUID uid, void *data, size_t size );
 int filehReadln( FilehUID uid, void *data, size_t size );
-void filehWrite( FilehUID uid, void *data, size_t size );
-void filehWritef( FilehUID uid, size_t bufsize, char *format, ... );
+int filehWrite( FilehUID uid, void *data, size_t size );
+int filehWritef( FilehUID uid, char *buf, size_t bufsize, char *format, ... );
 int filehSeek32( FilehUID uid, int offset, FilehWhence whence );
-long long filehSeek64( FilehUID uid, long long offset, FilehWhence whence );
+SceOff filehSeek( FilehUID uid, SceOff offset, FilehWhence whence );
 int filehTell32( FilehUID uid );
-long long filehTell64( FilehUID uid );
+SceOff filehTell( FilehUID uid );
 bool filehEof( FilehUID uid );
 bool filehUpdateStat( FilehUID uid );
 SceIoStat *filehGetStat( FilehUID uid );

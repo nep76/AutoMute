@@ -1,112 +1,224 @@
 /*
-	PSP VSH 24bpp text bliter (Original from "SDK for devhook 0.43")
+	PSP text blitter (Original from "SDK for devhook 0.43")
 */
 
 #include "font.c"
 #include "blit.h"
 
+/*-----------------------------------------------
+	ローカル関数
+-----------------------------------------------*/
+static BlitAlphaBlender blit_get_blender_by_pixelformat( enum PspDisplayPixelFormats pxfmt );
+static void *blit_autoflush( unsigned int opt, void *addr );
 
-BlitFontTable st_fonttable[] = {
+/*-----------------------------------------------
+	ローカル変数
+-----------------------------------------------*/
+static FbmgrDisplayStat st_dstat;
+static int st_pxlen;
+static unsigned int st_options;
+static BlitFontTable st_fonttable[] = {
 	{ font7Ascii, sizeof( font7Ascii ) },
 	{ font8Pspsdk, sizeof( font8Pspsdk ) }
 };
+/*=============================================*/
 
-static void blit_get_display_status( BlitDisplayStatus *stat )
+static BlitAlphaBlender blit_get_blender_by_pixelformat( enum PspDisplayPixelFormats pxfmt )
 {
-	sceDisplayGetMode( &(stat->mode), &(stat->width), &(stat->height) );
-	sceDisplayGetFrameBuf( (void *)&(stat->frameBuffer), &(stat->bufferWidth), (int *)&(stat->pixelFormat), PSP_DISPLAY_SETBUF_IMMEDIATE );
+	if( ! ( st_options & BO_ALPHABLEND ) ) return NULL;
+	
+	switch( pxfmt ){
+		case PSP_DISPLAY_PIXEL_FORMAT_8888:
+			return blitAlphaBlending8888;
+		case PSP_DISPLAY_PIXEL_FORMAT_4444:
+			return blitAlphaBlending4444;
+		case PSP_DISPLAY_PIXEL_FORMAT_5551:
+			return blitAlphaBlending5551;
+		case PSP_DISPLAY_PIXEL_FORMAT_565:
+			return blitAlphaBlending565;
+	}
+	return NULL;
 }
 
-u16 blitColorConvert565( u32 color )
+static void *blit_autoflush( unsigned int opt, void *addr )
+{
+	if( opt & BO_AUTOFLUSH ){
+		return (void *)( (unsigned int)addr | FBMGR_MEM_NOCACHE );
+	} else if( ((unsigned int)addr) & FBMGR_MEM_NOCACHE ){
+		return (void *)( (unsigned int)addr ^ FBMGR_MEM_NOCACHE );
+	}
+	return addr;
+}
+
+int blitInit( void )
+{
+	if(
+		fbmgrGetDisplayStat( &st_dstat ) ||
+		! st_dstat.bufferWidth || ! st_dstat.frameBuffer /* スリープ実行時に0が戻ってくるっぽい? */
+	) return -1;
+	
+	st_pxlen = fbmgrGetPixelLength( st_dstat.pixelFormat );
+	
+	return 0;
+}
+
+void blitSetOptions( unsigned int opt )
+{
+	st_options = opt;
+	
+	/* オートフラッシュフラグの処理 */
+	st_dstat.frameBuffer = blit_autoflush( st_options, st_dstat.frameBuffer );
+}
+
+void blitGetFrameBufStat( FbmgrDisplayStat *stat )
+{
+	*stat = st_dstat;
+}
+
+int blitGetFrameBufPixelLength( void )
+{
+	return st_pxlen;
+}
+
+void blitSetFrameBufAddrTop( void *addr )
+{
+	st_dstat.frameBuffer = blit_autoflush( st_options, addr );
+}
+
+uint32_t blitAlphaBlending8888( void *fg, void *bg )
+{
+	uint32_t src   = *((uint32_t *)fg);
+	uint32_t dest  = *((uint32_t *)bg);
+	uint8_t  alpha = ( src >> 24 ) & 0xFF;
+	
+	if( ! alpha ){
+		return dest;
+	} else if( alpha == 0xFF ){
+		return src;
+	} else{
+		uint32_t color = alpha << 24;
+		color |= BLIT_ALPHA_BLEND( ( src       ) & 0xFF, ( dest       ) & 0xFF, alpha, 8 );
+		color |= BLIT_ALPHA_BLEND( ( src >>  8 ) & 0xFF, ( dest >>  8 ) & 0xFF, alpha, 8 ) << 8;
+		color |= BLIT_ALPHA_BLEND( ( src >> 16 ) & 0xFF, ( dest >> 16 ) & 0xFF, alpha, 8 ) << 16;
+		return color;
+	}
+}
+
+uint32_t blitAlphaBlending4444( void *fg, void *bg )
+{
+	uint16_t src   = blitColorConvert4444( *((uint32_t *)fg) );
+	uint16_t dest  = *((uint16_t *)bg);
+	uint8_t  alpha = ( src >> 12 ) & 0xF;
+	
+	return src;
+	
+	if( ! alpha ){
+		return dest;
+	} else if( alpha == 0xF ){
+		return src;
+	} else{
+		uint16_t color = alpha << 12;
+		color |= BLIT_ALPHA_BLEND( ( src      ) & 0xF, ( dest      ) & 0xF, alpha, 4 );
+		color |= BLIT_ALPHA_BLEND( ( src >> 4 ) & 0xF, ( dest >> 4 ) & 0xF, alpha, 4 ) << 4;
+		color |= BLIT_ALPHA_BLEND( ( src >> 8 ) & 0xF, ( dest >> 4 ) & 0xF, alpha, 4 ) << 8;
+		return color;
+	}
+}
+
+uint32_t blitAlphaBlending5551( void *fg, void *bg )
+{
+	uint8_t  alpha = ( *((uint32_t *)fg) >> 27 ) & 0x1F;
+	uint16_t src   = blitColorConvert5551( *((uint32_t *)fg) );
+	uint16_t dest  = *((uint16_t *)bg);
+	
+	if( ! alpha ){
+		return dest;
+	} else if( alpha == 0x1F ){
+		return src;
+	} else{
+		uint16_t color = ( alpha ? 1 : 0 ) << 15;
+		color |= BLIT_ALPHA_BLEND( ( src       ) & 0x1F, ( dest       ) & 0x1F, alpha, 5 );
+		color |= BLIT_ALPHA_BLEND( ( src >>  5 ) & 0x1F, ( dest >>  5 ) & 0x1F, alpha, 5 ) << 5;
+		color |= BLIT_ALPHA_BLEND( ( src >> 10 ) & 0x1F, ( dest >> 10 ) & 0x1F, alpha, 5 ) << 10;
+		return color;
+	}
+}
+
+uint32_t blitAlphaBlending565( void *fg, void *bg )
+{
+	uint8_t  alpha = ( *((uint32_t *)fg) >> 26 ) & 0x3F;
+	uint16_t src   = blitColorConvert565( *((uint32_t *)fg) );
+	uint16_t dest  = *((uint16_t *)bg);
+	
+	if( ! alpha ){
+		return dest;
+	} else if( alpha == 0x3F ){
+		return src;
+	} else{
+		uint16_t color = 0;
+		color |= BLIT_ALPHA_BLEND( ( src       ) & 0x1F, ( dest       ) & 0x1F, ( alpha >> 1 ) & 0x1F, 5 );
+		color |= BLIT_ALPHA_BLEND( ( src >>  5 ) & 0x3F, ( dest >>  5 ) & 0x3F, alpha                , 6 ) << 5;
+		color |= BLIT_ALPHA_BLEND( ( src >> 11 ) & 0x1F, ( dest >> 11 ) & 0x1F, ( alpha >> 1 ) & 0x1F, 5 ) << 11;
+		return color;
+	}
+}
+
+uint16_t blitColorConvert565( uint32_t color )
 {
 	unsigned int r, g, b;
 	
-	r = ( color >> 3  ) & MASK_5BIT;
-	g = ( color >> 10 ) & MASK_6BIT;
-	b = ( color >> 19 ) & MASK_5BIT;
+	r = ( color >> 3  ) & 0x1F;
+	g = ( color >> 10 ) & 0x3F;
+	b = ( color >> 19 ) & 0x1F;
 	
 	return ( r | ( g << 5 ) | ( b << 11 ) );
 }
 
-u16 blitColorConvert5551( u32 color )
+uint16_t blitColorConvert5551( uint32_t color )
 {
-	unsigned int a, r, g, b;
+	unsigned int r, g, b, a;
 	
-	a = ( color >> 24 ) ? ALPHA_BIT : 0;
-	r = ( color >> 3  ) & MASK_5BIT;
-	g = ( color >> 11 ) & MASK_5BIT;
-	b = ( color >> 19 ) & MASK_5BIT;
+	r = ( color >> 3  ) & 0x1F;
+	g = ( color >> 11 ) & 0x1F;
+	b = ( color >> 19 ) & 0x1F;
+	a = ( color >> 24 ) ? 1 : 0;
 	
-	return ( a | r | ( g << 5 ) | ( b << 10 ) );
+	return ( r | ( g << 5 ) | ( b << 10 ) | ( a << 15 ) );
 }
 
-u16 blitColorConvert4444( u32 color )
+uint16_t blitColorConvert4444( uint32_t color )
 {
-	unsigned int a, r, g, b;
+	unsigned int r, g, b, a;
 	
-	a = ( color >> 28 ) & MASK_4BIT; 
-	r = ( color >> 4  ) & MASK_4BIT;
-	g = ( color >> 12 ) & MASK_4BIT;
-	b = ( color >> 20 ) & MASK_4BIT;
+	r = ( color >> 4  ) & 0xF;
+	g = ( color >> 12 ) & 0xF;
+	b = ( color >> 20 ) & 0xF;
+	a = ( color >> 28 ) & 0xF;
 	
-	return ( ( a << 12 ) | r | ( g << 4 ) | ( b << 8 ) );
+	return ( r | ( g << 4 ) | ( b << 8 ) | ( a << 12 ) );
 }
 
-int blitGetPixelLength( enum PspDisplayPixelFormats pxfmt )
-{
-	switch( pxfmt ){
-		case PSP_DISPLAY_PIXEL_FORMAT_565:
-		case PSP_DISPLAY_PIXEL_FORMAT_5551:
-		case PSP_DISPLAY_PIXEL_FORMAT_4444:
-			return 2;
-		case PSP_DISPLAY_PIXEL_FORMAT_8888:
-		default:
-			return 4;
-	}
-}
-
-u32 blitConvertColorFrom8888( enum PspDisplayPixelFormats pxfmt, u32 color )
-{
-	switch( pxfmt ){
-		case PSP_DISPLAY_PIXEL_FORMAT_565:
-			return blitColorConvert565( color );
-		case PSP_DISPLAY_PIXEL_FORMAT_5551:
-			return blitColorConvert5551( color );
-		case PSP_DISPLAY_PIXEL_FORMAT_4444:
-			return blitColorConvert4444( color );
-		case PSP_DISPLAY_PIXEL_FORMAT_8888:
-		default:
-			return color;
-	}
-}
-
-int blitChar( unsigned int sx, unsigned int sy, const char chr, u32 fgcolor, u32 bgcolor )
+int blitChar( unsigned int sx, unsigned int sy, uint32_t fgcolor, uint32_t bgcolor, const char chr )
 {
 	char tstr[2] = { chr, '\0' };
 	return blitString( sx ,sy, fgcolor, bgcolor, tstr );
 }
 
-int blitString( unsigned int sx, unsigned int sy, u32 fgcolor, u32 bgcolor, const char *msg )
+int blitString( unsigned int sx, unsigned int sy, uint32_t fgcolor, uint32_t bgcolor, const char *msg )
 {
-	int c, x, y, p;
-	int base_offset, offset, pxlen;
-	unsigned char font;
-	BlitDisplayStatus dstat;
+	void *addr;
+	unsigned int c, x, y, p;
+	unsigned int base_offset, offset;
+	unsigned char glyph;
+	uint32_t blend_color;
+	BlitAlphaBlender blender = blit_get_blender_by_pixelformat( st_dstat.pixelFormat );
 	
-	blit_get_display_status( &dstat );
-	
-	if( ! dstat.bufferWidth || ! dstat.frameBuffer ) return -1;
-	
-	pxlen   = blitGetPixelLength( dstat.pixelFormat );
-	fgcolor = blitConvertColorFrom8888( dstat.pixelFormat, fgcolor );
-	bgcolor = blitConvertColorFrom8888( dstat.pixelFormat, bgcolor );
-	
-	base_offset = sx + ( sy * dstat.bufferWidth );
+	base_offset = ( sx + ( sy * st_dstat.bufferWidth ) );
 	
 	for( c = 0, x = 0; msg[c]; c++, x++ ){
-		if( msg[c] == '\n' || sx + ( x + 1 ) * BLIT_CHAR_WIDTH >= dstat.width ){
+		if( msg[c] == '\n' || sx + ( x + 1 ) * BLIT_CHAR_WIDTH >= st_dstat.width ){
 			sy += BLIT_CHAR_HEIGHT;
-			base_offset = sx + ( sy * dstat.bufferWidth );
+			base_offset = sx + ( sy * st_dstat.bufferWidth );
 			if( msg[c] == '\n' ){
 				x = -1;
 				continue;
@@ -116,45 +228,48 @@ int blitString( unsigned int sx, unsigned int sy, u32 fgcolor, u32 bgcolor, cons
 		}
 		
 		for( y = 0; y < BLIT_CHAR_HEIGHT; y++ ){
-			offset = base_offset + ( y * dstat.bufferWidth ) + ( x * BLIT_CHAR_WIDTH );
+			offset = ( base_offset + ( y * st_dstat.bufferWidth ) + ( x * BLIT_CHAR_WIDTH ) ) * st_pxlen;
 			if( (unsigned char)msg[c] < 0x80 ){
 				/* 7bit ASCII */
-				font = st_fonttable[0].table[ msg[c]*8 + y ];
+				glyph = st_fonttable[0].table[ msg[c]*8 + y ];
 			} else{
 				/* 8bit ASCII */
 				unsigned char t_c = (msg[c] & 0x7f)*8 + y;
 				if( t_c < st_fonttable[1].charnum ){
 					/* 文字が定義されていれば使用 */
-					font = st_fonttable[1].table[t_c];
+					glyph = st_fonttable[1].table[t_c];
 				} else{
 					/* 文字がテーブルの最大文字数を超えていたら ? を表示 */
-					font = st_fonttable[0].table[ '?'*8 + y ];
+					glyph = st_fonttable[0].table[ '?'*8 + y ];
 				}
 			}
-			for( p = 0; p < BLIT_CHAR_WIDTH; p++ ){
-				if( font & 0x80 ){
-					memcpy( (void *)((unsigned int)(dstat.frameBuffer) + ( offset * pxlen )), (void *)&fgcolor, pxlen );
+			for( p = 0; p < BLIT_CHAR_WIDTH; p++, offset += st_pxlen, glyph <<= 1 ){
+				addr = (void *)((unsigned int)(st_dstat.frameBuffer) + offset);
+				if( glyph & 0x80 ){
+					blend_color = fgcolor;
 				} else{
-					memcpy( (void *)((unsigned int)(dstat.frameBuffer) + ( offset * pxlen )), (void *)&bgcolor, pxlen );
+					blend_color = bgcolor;
 				}
-				font <<= 1;
-				offset++;
+				
+				if( blend_color != BLIT_TRANSPARENT ){
+					if( blender ) blend_color = ( blender )( &blend_color, addr );
+					memcpy( addr, (void *)&blend_color, st_pxlen );
+				}
 			}
 		}
 	}
 	return c;
 }
 
-void blitFillRect( unsigned int sx, unsigned int sy, unsigned int ex, unsigned int ey, u32 color )
+void blitFillRect( unsigned int sx, unsigned int sy, unsigned int ex, unsigned int ey, uint32_t color )
 {
 	unsigned int cx, cy;
-	int offset, pxlen;
-	BlitDisplayStatus dstat;
+	unsigned int offset;
+	void *addr;
+	uint32_t blend_color;
+	BlitAlphaBlender blender = blit_get_blender_by_pixelformat( st_dstat.pixelFormat );
 	
-	blit_get_display_status( &dstat );
-	
-	pxlen = blitGetPixelLength( dstat.pixelFormat );
-	color = blitConvertColorFrom8888( dstat.pixelFormat, color );
+	if( color == BLIT_TRANSPARENT ) return;
 	
 	if( sx > 512 ) sx = 512;
 	if( ex > 512 ) ex = 512;
@@ -162,25 +277,24 @@ void blitFillRect( unsigned int sx, unsigned int sy, unsigned int ex, unsigned i
 	if( ey > 272 ) ey = 272;
 	
 	for( cy = sy; cy <= ey; cy++ ){
-		offset = ( sx + cy * dstat.bufferWidth ) * pxlen;
-		for( cx = sx; cx <= ex; cx++ ){
-			memcpy( (void *)((unsigned int)(dstat.frameBuffer) + offset), (void *)&color, pxlen );
-			offset += pxlen;
+		offset = ( sx + cy * st_dstat.bufferWidth ) * st_pxlen;
+		for( cx = sx; cx < ex; cx++, offset += st_pxlen ){
+			addr = (void *)((unsigned int)(st_dstat.frameBuffer) + offset);
+			blend_color = blender ? ( blender )( &color, addr ) : color;
+			memcpy( addr, (void *)&blend_color, st_pxlen );
 		}
 	}
 }
 
 /* bresenhamの線分描画アルゴリズム */
-void blitLine( unsigned int sx, unsigned int sy, unsigned int ex, unsigned int ey, u32 color )
+void blitLine( unsigned int sx, unsigned int sy, unsigned int ex, unsigned int ey, uint32_t color )
 {
-	unsigned int dx, dy;
-	unsigned int e = 0, pxlen;
-	BlitDisplayStatus dstat;
+	unsigned int dx, dy, e = 0;
+	void *addr;
+	uint32_t blend_color;
+	BlitAlphaBlender blender = blit_get_blender_by_pixelformat( st_dstat.pixelFormat );
 	
-	blit_get_display_status( &dstat );
-	
-	pxlen = blitGetPixelLength( dstat.pixelFormat );
-	color = blitConvertColorFrom8888( dstat.pixelFormat, color );
+	if( color == BLIT_TRANSPARENT ) return;
 	
 	if( sx > 512 ) sx = 512;
 	if( ex > 512 ) ex = 512;
@@ -214,7 +328,9 @@ void blitLine( unsigned int sx, unsigned int sy, unsigned int ex, unsigned int e
 				e -= dx;
 				y++;
 			}
-			memcpy( (void *)((unsigned int)(dstat.frameBuffer) + ( ( x + ( y * dstat.bufferWidth ) ) * pxlen )), (void *)&color, pxlen );
+			addr = (void *)((unsigned int)(st_dstat.frameBuffer) + ( ( x + ( y * st_dstat.bufferWidth ) ) * st_pxlen ));
+			blend_color = blender ? ( blender )( &color, addr ) : color;
+			memcpy( addr, (void *)&blend_color, st_pxlen );
 		}
 	} else{
 		unsigned int x, y;
@@ -224,13 +340,17 @@ void blitLine( unsigned int sx, unsigned int sy, unsigned int ex, unsigned int e
 				e -= dy;
 				x++;
 			}
-			memcpy( (void *)((unsigned int)(dstat.frameBuffer) + ( ( x + ( y * dstat.bufferWidth ) ) * pxlen )), (void *)&color, pxlen );
+			addr = (void *)((unsigned int)(st_dstat.frameBuffer) + ( ( x + ( y * st_dstat.bufferWidth ) ) * st_pxlen ));
+			blend_color = blender ? ( blender )( &color, addr ) : color;
+			memcpy( addr, (void *)&blend_color, st_pxlen );
 		}
 	}
 }
 
-void blitLineRect( unsigned int sx, unsigned int sy, unsigned int ex, unsigned int ey, u32 color )
+void blitLineRect( unsigned int sx, unsigned int sy, unsigned int ex, unsigned int ey, uint32_t color )
 {
+	if( color == BLIT_TRANSPARENT ) return;
+	
 	blitLine( sx, sy, ex, sy, color );
 	blitLine( ex, sy, ex, ey, color );
 	blitLine( ex, ey, sx, ey, color );
@@ -252,7 +372,7 @@ void blit8BitCharTableSwitch( Blit8BitCharTable table )
 	}
 }
 
-int blitStringvf( unsigned int sx, unsigned int sy, u32 fgcolor, u32 bgcolor, const char *format, va_list ap )
+int blitStringvf( unsigned int sx, unsigned int sy, uint32_t fgcolor, uint32_t bgcolor, const char *format, va_list ap )
 {
 	char str[255];
 	
@@ -260,9 +380,9 @@ int blitStringvf( unsigned int sx, unsigned int sy, u32 fgcolor, u32 bgcolor, co
 	return blitString( sx, sy, fgcolor, bgcolor, str );
 }
 
-int blitStringf( unsigned int sx, unsigned int sy, u32 fgcolor, u32 bgcolor, const char *format, ... )
+int blitStringf( unsigned int sx, unsigned int sy, uint32_t fgcolor, uint32_t bgcolor, const char *format, ... )
 {
-	int c;
+	unsigned int c;
 	va_list ap;
 	
 	va_start( ap, format );

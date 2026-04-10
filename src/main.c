@@ -18,6 +18,11 @@ static bool   st_running = true;
 static bool   st_mute    = false;
 static SceUID st_main_thid;
 static SceUID st_disp_thid;
+static SceUID st_wdpw_thid;
+static SceUID st_pwcb_thid;
+static int    st_power_info = 0;
+
+static bool   st_show_status_message = true;
 
 /*=============================================*/
 
@@ -25,6 +30,8 @@ void amNoticef( char *format, ... )
 {
 	char msg[NOTICE_MESSAGE_BUFFER];
 	va_list ap;
+	
+	if( ! st_show_status_message ) return;
 	
 	va_start( ap, format );
 	vsnprintf( msg, NOTICE_MESSAGE_BUFFER, format, ap );
@@ -53,72 +60,158 @@ void amMuteDisable( void )
 	st_mute = false;
 }
 
+int amWatchdogPower( SceSize arglen, void *argp )
+{
+	st_pwcb_thid = sceKernelCreateCallback( "AutoMute PowerCallback", amPowerCb, NULL );
+	if( st_pwcb_thid && scePowerRegisterCallback( AM_POWER_CALLBACK_SLOT, st_pwcb_thid ) == 0 ){
+		sceKernelSleepThreadCB();
+	}
+	
+	return sceKernelExitDeleteThread( 0 );
+}
+
+int amPowerCb( int unk, int pwinfo, void *argp )
+{
+	st_power_info = pwinfo;
+	return 0;
+}
+
 int amMain( SceSize arglen, void *argp )
 {
 	SceCtrlData pad;
-	bool wait_toggle_button_release = false;
-	bool activate = false;
-	unsigned int toggle_buttons = AM_DEFAULT_TOGGLE_BUTTONS; 
+	CtrlpadParams ctrl;
 	
-	if( sceHprmIsHeadphoneExist() ){
-		activate = true;
-		amNoticef( AM_ENABLED_BOOT, AM_VERSION );
-	} else{
-		amNoticef( AM_DISABLED_BOOT, AM_VERSION );
-	}
+	bool activate = false;
+	struct am_params params;
+	
+	memset( &params, 0, sizeof( struct am_params ) );
+	
+	params.main.autoDetect         = AM_INIDEF_MAIN_AUTODETECT;
+	params.main.toggleButtons      = AM_INIDEF_MAIN_TOGGLEBUTTONS;
+	params.main.showMuteWarning    = AM_INIDEF_MAIN_SHOWMUTEWARNING;
+	
+	params.resume.autoDetect       = AM_INIDEF_RESUME_AUTODETECT;
+	params.resume.allowAutoDisable = AM_INIDEF_RESUME_ALLOWAUTODISABLE;
 	
 	{
-		ConfmgrHandlerParams conf[] = {
-			{ "TOGGLE_BUTTONS", CH_CALLBACK_LOAD,  cmpspbtnLoad,  &toggle_buttons },
-			{ "TOGGLE_BUTTONS", CH_CALLBACK_STORE, cmpspbtnStore, &toggle_buttons }
-		};
-		
-		cmpspbtnSetMask( PSP_CTRL_HOME | PSP_CTRL_HOLD | PSP_CTRL_WLAN_UP | PSP_CTRL_REMOTE | PSP_CTRL_DISC | PSP_CTRL_MS );
-		if( ! confmgrLoad( conf, sizeof( conf ) / sizeof( conf[0] ), AM_CONF_FILE_FULLPATH ) ){
-			confmgrStore( conf, sizeof( conf ) / sizeof( conf[0] ), AM_CONF_FILE_FULLPATH );
+		IniUID ini;
+		ini = inimgrNew();
+		if( ini > 0 ){
+			char buttons[128];
+			if( inimgrLoad( ini, "ms0:/seplugins/automute.ini" ) != 0 ){
+				inimgrSetBool( ini, "Main", "AutoDetect", AM_INIDEF_MAIN_AUTODETECT );
+				inimgrSetString( ini, "Main", "ToggleButtons", AM_INIDEF_MAIN_TOGGLEBUTTONSNAME );
+				inimgrSetBool( ini, "Main", "ShowStatusMessage", AM_INIDEF_MAIN_SHOWSTATUSMESSAGE );
+				inimgrSetBool( ini, "Main", "ShowMuteWarning", AM_INIDEF_MAIN_SHOWMUTEWARNING );
+				
+				inimgrSetBool( ini, "Resume", "AutoDetect", AM_INIDEF_RESUME_AUTODETECT );
+				inimgrSetBool( ini, "Resume", "AllowAutoDisable", AM_INIDEF_RESUME_ALLOWAUTODISABLE );
+				
+				inimgrSave( ini, "ms0:/seplugins/automute.ini" );
+			}
+			
+			params.main.autoDetect = inimgrGetBool( ini, "Main", "AutoDetect", AM_INIDEF_MAIN_AUTODETECT );
+			
+			inimgrGetString( ini, "Main", "ToggleButtons", AM_INIDEF_MAIN_TOGGLEBUTTONSNAME, buttons, sizeof( buttons ) );
+			params.main.toggleButtons = ctrlpadUtilStringToButtons( buttons );
+			
+			st_show_status_message      = inimgrGetBool( ini, "Main", "ShowStatusMessage", AM_INIDEF_MAIN_SHOWSTATUSMESSAGE );
+			params.main.showMuteWarning = inimgrGetBool( ini, "Main", "ShowMuteWarning",   AM_INIDEF_MAIN_SHOWMUTEWARNING );
+			
+			params.resume.autoDetect       = inimgrGetBool( ini, "Resume", "AutoDetect",       AM_INIDEF_RESUME_AUTODETECT );
+			params.resume.allowAutoDisable = inimgrGetBool( ini, "Resume", "AllowAutoDisable", AM_INIDEF_RESUME_ALLOWAUTODISABLE );
+			
+			inimgrDestroy( ini );
+		}
+	}
+	if( params.resume.autoDetect ){
+		if( st_wdpw_thid > 0 ) sceKernelStartThread( st_wdpw_thid, 0, NULL );
+	} else{
+		if( st_wdpw_thid > 0 ) sceKernelDeleteThread( st_wdpw_thid );
+	}
+	
+	ctrlpadInit( &ctrl );
+	ctrlpadSetRepeatButtons( &ctrl,
+		PSP_CTRL_CIRCLE   | PSP_CTRL_CROSS    | PSP_CTRL_SQUARE | PSP_CTRL_TRIANGLE |
+		PSP_CTRL_UP       | PSP_CTRL_RIGHT    | PSP_CTRL_DOWN   | PSP_CTRL_LEFT     |
+		PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_SELECT | PSP_CTRL_START    |
+		PSP_CTRL_NOTE     | PSP_CTRL_SCREEN   | PSP_CTRL_VOLUP  | PSP_CTRL_VOLDOWN  |
+		CTRLPAD_CTRL_ANALOG_UP   | CTRLPAD_CTRL_ANALOG_RIGHT |
+		CTRLPAD_CTRL_ANALOG_DOWN | CTRLPAD_CTRL_ANALOG_LEFT
+	);
+	ctrlpadPref( &ctrl, 0, 0, 0 ); /* リピートしない */
+	
+	/* 表示スレッドを待つ */
+	while( noticeGetStat() != NS_READY ) sceKernelDelayThread( 10000 );
+	
+	if( params.main.autoDetect ){
+		if( sceHprmIsHeadphoneExist() ){
+			activate = true;
+			amNoticef( AM_ENABLE_BOOT, AM_VERSION );
+		} else{
+			amNoticef( AM_DISABLE_BOOT, AM_VERSION );
 		}
 	}
 	
 	while( st_running ){
 		sceKernelDelayThread( 10000 );
-		sceCtrlPeekBufferPositive( &pad, 1 );
 		
-		/* 指定されたボタンのフラグのみ取り出す */
-		pad.Buttons &= (~( ~0 ^ toggle_buttons ));
+		pad.Buttons = ctrlpadGetData( &ctrl, &pad, 40 );
 		
-		if( pad.Buttons == toggle_buttons ){
-			if( ! wait_toggle_button_release ){
-				if( activate ){
-					if( st_mute ){
-						amMuteDisable();
-					}
-					activate = false;
-					amNoticef( AM_DISABLED, AM_VERSION );
-				} else{
+		if( params.resume.autoDetect && ( st_power_info & PSP_POWER_CB_RESUME_COMPLETE ) ){
+			/*
+				リジューム完了直後はまだグラフィックが初期化されていない場合があるようで、
+				即描画すると何も表示されない場合がある。
+				
+				初期化のためにVsyncを二回待つ。
+			*/
+			sceDisplayWaitVblankStart();
+			sceDisplayWaitVblankStart();
+			
+			if( sceHprmIsHeadphoneExist() ){
+				if( ! activate ){
 					activate = true;
-					amNoticef( AM_ENABLED, AM_VERSION );
+					
+					amNoticef( AM_ENABLE_RESUME, AM_VERSION );
 				}
-				wait_toggle_button_release = true;
+			} else if( params.resume.allowAutoDisable ){
+				if( activate ){
+					activate = false;
+					amNoticef( AM_DISABLE_RESUME, AM_VERSION );
+				}
 			}
-		} else if( wait_toggle_button_release ){
-			wait_toggle_button_release = false;
-		}
+			
+			/* 電源状態をリセット */
+			st_power_info = 0;
+		} else if( ( pad.Buttons & (~( ~0 ^ params.main.toggleButtons )) ) == params.main.toggleButtons ){
+			if( activate ){
+				if( st_mute ) amMuteDisable();
+				activate = false;
+				amNoticef( AM_MAIN_DISABLED, AM_VERSION );
+			} else{
+				activate = true;
+				amNoticef( AM_MAIN_ENABLED, AM_VERSION );
+			}
+		} 
 		
 		if( ! activate ) continue;
 		
 		if( ! sceHprmIsHeadphoneExist() ){
 			/*
-				スリープ復帰時に音が復活するので、
+				リジューム時に音が復活するので、
 				Enabled状態でヘッドホンが抜けている場合は、
 				毎回ミュート化を試みる。
 			*/
 			amMuteEnable();
-			amNoticef( AM_MUTE, AM_VERSION );
+			if( params.main.showMuteWarning ) amNoticef( AM_MUTE, AM_VERSION );
 		} else if( sceHprmIsHeadphoneExist() && st_mute ){
 			noticePrintAbort();
 			amMuteDisable();
 		}
 	}
+	
+	scePowerUnregisterCallback( AM_POWER_CALLBACK_SLOT );
+	sceKernelDeleteThread( st_pwcb_thid );
 	
 	noticeThreadExit();
 	sceKernelDeleteThread( st_disp_thid );
@@ -128,13 +221,14 @@ int amMain( SceSize arglen, void *argp )
 
 int module_start( SceSize arglen, void *argp )
 {
-	st_main_thid = sceKernelCreateThread( "AutoMute Main", amMain, 32, 0xC00, PSP_THREAD_ATTR_NO_FILLSTACK, 0 );
-	st_disp_thid = sceKernelCreateThread( "AutoMute Notice", noticeThread, 16, 0x400, PSP_THREAD_ATTR_NO_FILLSTACK, 0 );
-	
+	st_main_thid = sceKernelCreateThread( "AutoMute Main",   amMain,       32, 0xC00, 0, 0 );
+	st_disp_thid = sceKernelCreateThread( "AutoMute Notice", noticeThread, 16, 0x400, 0, 0 );
 	if( st_main_thid > 0 && st_disp_thid > 0 ){
 		sceKernelStartThread( st_main_thid, arglen, argp );
 		sceKernelStartThread( st_disp_thid, arglen, argp );
 	}
+	
+	st_wdpw_thid = sceKernelCreateThread( "AutoMute Watchdog Power", amWatchdogPower, 24, 0x300, 0, 0 );
 	
 	return 0;
 }

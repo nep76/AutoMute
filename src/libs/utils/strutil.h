@@ -1,13 +1,13 @@
-/*char *strutilToLowerFirst( char *str )
-
+/*
 	便利な文字列処理用関数
 */
 
-#ifndef __STRUTIL_H__
-#define __STRUTIL_H__
+#ifndef STRUTIL_H
+#define STRUTIL_H
 
 #include <ctype.h>
 #include <string.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,7 +20,7 @@ extern "C" {
 /*
 	strutilSafeCopy
 	
-	標準ライブラリのstrncpyに似ているが、必ず末尾にNULLを付加する。
+	標準ライブラリのstrncpy()に似ているが、必ず末尾にNULLを付加する。
 	
 	@param: char *dest
 		文字列のコピー先。
@@ -43,7 +43,7 @@ char *strutilSafeCopy( char *dest, const char *src, size_t max );
 /*
 	strutilSafeCat
 	
-	標準ライブラリのstrncatに似ているが、必ず末尾にNULLを付加する。
+	標準ライブラリのstrncat()に似ているが、必ず末尾にNULLを付加する。
 	また、サイズはsrcの文字数ではなく、結合後の最大文字数。
 	つまり、destは必ずmax以下になる。
 	dest + srcの文字列がmaxよりも大きい場合は、srcは全てコピーされない。
@@ -64,6 +64,39 @@ char *strutilSafeCopy( char *dest, const char *src, size_t max );
 char *strutilSafeCat( char *dest, const char *src, size_t max );
 
 /*
+	strutilCounterPbrk
+	
+	標準ライブラリのstrpbrk()に似ているが、
+	文字列srcに、文字列search中のいずれかに"含まれない"文字が最初に見つかった位置を返す。
+	
+	@param: const char *src
+		検索対象文字列。
+	
+	@param: const char *search
+		文字群。
+	
+	@return: char*
+		"文字列src中で、文字群searchに含まれない文字が最初に見つかった位置。
+*/
+char *strutilCounterPbrk( const char *src, const char *search );
+
+/*
+	strutilCounterReversePbrk
+	
+	上記のstrutilCounterPbrk()と同じことを、文字列の末尾から検索する。
+	
+	@param: const char *src
+		検索対象文字列。
+	
+	@param: const char *search
+		文字群。
+	
+	@return: char*
+		"文字列src中で、文字群searchに含まれない文字が最初に見つかった位置。
+*/
+char *strutilCounterReversePbrk( const char *src, const char *search );
+
+/*
 	strutilRemoveChar 
 	
 	文字列から、指定した文字を削除し、さらに詰める。
@@ -71,11 +104,11 @@ char *strutilSafeCat( char *dest, const char *src, size_t max );
 	@param: char *str
 		処理対象の文字列。
 	
-	@param: const char *target
+	@param: const char *search
 		取り除く文字を指定。
 		文字列で指定するが、取り除きたい文字を全て書き出す。
 */
-void strutilRemoveChar( char *str, const char *target );
+void strutilRemoveChar( char *str, const char *search );
 
 /*
 	strutilToUpper

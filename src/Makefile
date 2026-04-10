@@ -30,18 +30,19 @@ LDFLAGS =
 # newlibを使う場合、libpspuserをリンクしないとsceKernelFreeMemSizeのリンクに失敗する。
 # libpspuserより先にlibpspkernelをリンクしないと、システムコントロール系のシンボルに
 # ユーザモードの方をリンクしてしまい、カーネルモードスレッドを生成できない模様？
-LIBS = -lpsphprm_driver -lpspkernel -lc -lpspuser
+LIBS = -lpsprtc -lpsppower_driver -lpsphprm_driver -lpspkernel -lm -lc -lpspuser
 
 OBJS = exports.o \
        main.o \
        notice.o \
        $(CLASSG_LIBS)/utils/strutil.o \
        $(CLASSG_LIBS)/psp/memsce.o \
+       $(CLASSG_LIBS)/psp/graphics/fbmgr.o \
        $(CLASSG_LIBS)/psp/blit.o \
        $(CLASSG_LIBS)/psp/pathexpand.o \
        $(CLASSG_LIBS)/psp/fileh.o \
-       $(CLASSG_LIBS)/utils/confmgr.o \
-       $(CLASSG_LIBS)/psp/confmgr/cmpspbtn.o \
+       $(CLASSG_LIBS)/utils/inimgr.o \
+       $(CLASSG_LIBS)/psp/ctrlpad.o \
 
 PSPSDK = $(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build_prx.mak

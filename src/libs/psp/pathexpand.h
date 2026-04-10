@@ -5,8 +5,8 @@
 	getcwd‚ğg‚¤‚Ì‚ÅUSE_KERNEL_LIBC‰º‚Å‚Í“®‚©‚È‚¢B
 */
 
-#ifndef __PATHEXPAND_H__
-#define __PATHEXPAND_H__
+#ifndef PATHEXPAND_H
+#define PATHEXPAND_H
 
 #include <unistd.h>
 #include <stdbool.h>

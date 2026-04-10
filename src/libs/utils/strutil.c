@@ -31,13 +31,69 @@ char *strutilSafeCat( char *dest, const char *src, size_t max )
 	return retp;
 }
 
-void strutilRemoveChar( char *str, const char *target )
+char *strutilCounterPbrk( const char *src, const char *search )
+{
+	bool find = false;
+	
+	if( search[0] == '\0' ) return NULL;
+	
+	for( ; *src != '\0'; src++ ){
+		for( ; *search != '\0'; search++ ){
+			if( *src == *search ){
+				find = true;
+				break;
+			}
+		}
+		if( find ){
+			find = false;
+		} else{
+			break;
+		}
+	}
+	
+	if( *src == '\0' ){
+		return NULL;
+	} else{
+		return (char *)src;
+	}
+}
+
+char *strutilCounterReversePbrk( const char *src, const char *search )
+{
+	int src_index, search_index, search_len;
+	bool find = false;
+	
+	if( search[0] == '\0' ) return NULL;
+	
+	search_len = strlen( search );
+	for( src_index = strlen( src ); src_index >= 0; src_index-- ){
+		for( search_index = search_len; search_index >= 0; search_index-- ){
+			if( src[src_index] == search[search_index] ){
+				find = true;
+				break;
+			}
+		}
+		if( find ){
+			find = false;
+		} else{
+			break;
+		}
+	}
+	
+	if( src[src_index] == '\0' ){
+		return NULL;
+	} else{
+		return (char *)(&src[src_index]);
+	}
+}
+
+void strutilRemoveChar( char *str, const char *search )
 {
 	int offset     = 0;
 	int ins_offset = 0;
 	
 	while( str[offset] != '\0' ){
-		if( ! strchr( target, str[offset] )  ){
+		if( ! strchr( search, str[offset] )  ){
 			str[ins_offset++] = str[offset];
 		}
 		offset++;
